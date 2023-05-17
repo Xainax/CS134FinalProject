@@ -36,7 +36,7 @@ class ofApp : public ofBaseApp{
 		void togglePointsDisplay();
 		void toggleSelectTerrain();
 		void setCameraTarget();
-		void checkCollisions();
+		bool checkCollisions();
 		bool mouseIntersectPlane(ofVec3f planePoint, ofVec3f planeNorm, ofVec3f &point);
 		bool raySelectWithOctree(ofVec3f &pointRet);
 		glm::vec3 ofApp::getMousePointOnPlane(glm::vec3 p , glm::vec3 n);
@@ -86,6 +86,8 @@ class ofApp : public ofBaseApp{
 		bool gameStarted;
 		bool gameOver;
 		bool bFuel = true;
+		bool bLanded = false;
+		bool landedInBox = false;
 		float altitude;
 		float angle;
 		float fuel = 120 * 1000;
@@ -93,13 +95,13 @@ class ofApp : public ofBaseApp{
 		glm::vec3 headingVector;
 		
 		Particle* playerLander;
-		ParticleSystem* sys;
-		ThrustForce* thrustForce;
+		ParticleSystem* landerSys;
 		GravityForce* gravityForce;
-		ImpulseRadialForce* radialForce;
+		ThrustForce* thrustForce;
+		ImpulseForce* impulseForce;
 		ParticleEmitter explosion, rocketExhaust;
 		ofLight keyLight, fillLight, rimLight;
-		ofSoundPlayer movementSound;
+		ofSoundPlayer movementSound, explosionSound;
 		ofImage background;
 		ofTexture particleTex;
 		ofVbo vbo;

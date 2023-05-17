@@ -9,7 +9,6 @@ Particle::Particle() {
 	acceleration.set(0, 0, 0);
 	position.set(0, 0, 0);
 	forces.set(0, 0, 0);
-	rotation = 0;
 	lifespan = 5;
 	birthtime = 0;
 	radius = .1;
@@ -19,8 +18,8 @@ Particle::Particle() {
 }
 
 void Particle::draw() {
-//	ofSetColor(color);
-	ofSetColor(ofMap(age(), 0, lifespan, 255, 10), 0, 0);
+	ofSetColor(color);
+//	ofSetColor(ofMap(age(), 0, lifespan, 255, 10), 0, 0);
 	ofDrawSphere(position, radius);
 }
 
@@ -28,10 +27,13 @@ void Particle::draw() {
 //
 void Particle::integrate() {
 
-	
-	// interval for this step
+	// check for 0 framerate to avoid divide errors
 	//
 	float framerate = ofGetFrameRate();
+	if (framerate < 1.0) return;
+
+	// interval for this step
+	//
 	float dt = 1.0 / framerate;
 
 	// update position based on velocity
@@ -49,18 +51,13 @@ void Particle::integrate() {
 	//
 	velocity *= damping;
 
-	// update rotation based on angular velocity
-	// 
+	// angular motion
 	rotation += (rVelocity * dt);
+	
+	float rAccel = rAcceleration;
+	rAccel += (rForce * (1.0 / mass));
+	rVelocity += rAccel * dt;
 
-	// update angular acceleration with angular force
-	//
-	float r = rAcceleration;
-	r += (rForce * (1.0 / mass));
-	rVelocity += r * dt;
-
-	// add a little damping for good measure
-	//
 	rVelocity *= damping;
 
 	// clear forces on particle (they get re-added each step)
