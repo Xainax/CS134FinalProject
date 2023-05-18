@@ -144,8 +144,8 @@ void ofApp::setup() {
 	playerLander = new Particle();
 	playerLander->lifespan = -1;
 	landerSys->add(*playerLander);
-	
-	gravityForce = new GravityForce(ofVec3f(0, -1, 0));
+
+	gravityForce = new GravityForce(0.5 * ofVec3f(0, -1, 0));
 	thrustForce = new ThrustForce(ofVec3f(0, 0, 0));
 	landerSys->addForce(gravityForce);
 	landerSys->addForce(thrustForce);
@@ -160,11 +160,13 @@ void ofApp::setup() {
 	rocketExhaust.setGroupSize(50);
 	rocketExhaust.setLifespan(0.5);
 
+	// particle emitter for explosion
 	explosion.setEmitterType(RadialEmitter);
 	explosion.setPosition(landerSys->particles[0].position);
 	explosion.setOneShot(true);
 	explosion.setGroupSize(100);
-
+	explosion.setVelocity(ofVec3f(0, 0, 0));
+	explosion.setLifespan(1);
 }
 
 // load vertex buffer in preparation for rendering
@@ -191,6 +193,15 @@ void ofApp::loadVbo() {
 //
 void ofApp::update() {
 	ofSeedRandom();
+
+	// update camera 
+	cam1.lookAt(lander.getPosition());
+	cam2.setPosition(glm::vec3(lander.getPosition().x, lander.getPosition().y, lander.getPosition().z));
+	cam2.lookAt(lander.getPosition());
+	top.setPosition(lander.getPosition().x, lander.getPosition().y + 25, lander.getPosition().z - 25);
+	top.lookAt(lander.getPosition());
+
+	// update lander
 	if (bLanderLoaded && !bLanderSelected) {
 		if (fuel <= 0) {
 			fuel = 0;
@@ -206,35 +217,46 @@ void ofApp::update() {
 
 				Box bounds = Box(Vector3(min.x, min.y, min.z), Vector3(max.x, max.y, max.z));
 				if (bounds.overlap(landingBox)) {
-					landedInBox = true;
+					landedInBox = true; 
+					finalScore = (fuel / 100) + 100;
 				}
+				impulseForce = new ImpulseForce(ofVec3f(0, 10, 0));
+				impulseForce->applyOnce = true;
+				landerSys->addForce(impulseForce);
 			}
 
 			// if landing was too hard
-			if (landerSys->particles[0].velocity.y < -5) {
+			if (landerSys->particles[0].velocity.y < -5 || !landedInBox) {
 				// lander explodes
+				impulseForce = new ImpulseForce(ofVec3f(0, 3000, 0));
+				impulseForce->applyOnce = true;
+				landerSys->addForce(impulseForce);
+				explosion.sys->reset();
 				explosion.start();
 				cout << "explosion" << endl;
+				gameOver = true;
 			}
-			impulseForce = new ImpulseForce(ofVec3f(0, 2, 0));
-			impulseForce->applyOnce = true;
-			landerSys->addForce(impulseForce);
+
+			else if (landerSys->particles[0].velocity.y < -3 && landedInBox) {
+				roughLanding = true;
+				cout << "hard landing" << endl;
+				finalScore = (fuel / 100) + 50;
+			}
+
 		}
-	
-	landerSys->update();
-	lander.setPosition(landerSys->particles[0].position.x, landerSys->particles[0].position.y, landerSys->particles[0].position.z);
-	rocketExhaust.setPosition(landerSys->particles[0].position);
-	rocketExhaust.update();
 
-	altitude = getAltitude();
+		// update particle system and emitters
+		landerSys->update();
+		lander.setPosition(landerSys->particles[0].position.x, landerSys->particles[0].position.y, landerSys->particles[0].position.z);
+		lander.setRotation(0, landerSys->particles[0].rotation, 0, 1, 0);
+		rocketExhaust.setPosition(landerSys->particles[0].position);
+		rocketExhaust.update();
+		explosion.setPosition(landerSys->particles[0].position);
+		explosion.update();
+
+		// update altitude of lander
+		altitude = getAltitude();
 	}
-
-
-	// update camera 
-	cam1.lookAt(lander.getPosition());
-	cam2.setPosition(glm::vec3(lander.getPosition().x, lander.getPosition().y, lander.getPosition().z));
-	top.setPosition(lander.getPosition().x, lander.getPosition().y + 25, lander.getPosition().z - 25);
-	top.lookAt(lander.getPosition());
 }
 //--------------------------------------------------------------
 void ofApp::draw() {
@@ -266,12 +288,15 @@ void ofApp::draw() {
 		ofNoFill();
 		ofSetColor(ofColor::blue);
 		Octree::drawBox(landingBox);
+
+		// set up heading
+		float angle = glm::radians(landerSys->particles[0].rotation);
+		headingVector = glm::normalize(glm::vec3(-glm::sin(angle), 0, -glm::cos(angle)));
+
 		ofFill();
 		if (bLanderLoaded) {
 			lander.drawFaces();
 			rocketExhaust.draw();
-			float angle = glm::radians(landerSys->particles[0].rotation);
-			headingVector = glm::normalize(glm::vec3(-glm::sin(angle), 0, -glm::cos(angle)));
 			if (!bTerrainSelected) drawAxis(lander.getPosition());
 			if (bDisplayBBoxes) {
 				ofNoFill();
@@ -449,9 +474,6 @@ void ofApp::keyPressed(int key) {
 	case 'r':
 		cam.reset();
 		break;
-	case 's':
-		savePicture();
-		break;
 	case 't':
 		setCameraTarget();
 		break;
@@ -463,31 +485,48 @@ void ofApp::keyPressed(int key) {
 	case 'V':
 		break;
 	case 'w':
+		thrustForce->add(0.2 * ofVec3f(0, 1, 0));
 		rocketExhaust.start();
+		if (!movementSound.isPlaying()) {
+			movementSound.play();
+		}
 		break;
-	case OF_KEY_LEFT:
-		thrustForce->add(0.5 * ofVec3f(-1, 0, 0));
+	case 's':
+		thrustForce->add(0.2 * ofVec3f(0, -1, 0));
+		rocketExhaust.start();
+		if (!movementSound.isPlaying()) {
+			movementSound.play();
+		}
+		break;
+	case 'q':
+		landerSys->particles[0].rForce = 10;
+		break;
+	case 'e':
+		landerSys->particles[0].rForce = -10;
+		break;
+	case OF_KEY_LEFT: 
+		thrustForce->add(0.2 * ofVec3f(-1, 0, 0));
 		rocketExhaust.start();
 		if (!movementSound.isPlaying()) {
 			movementSound.play();
 		}
 		break;
 	case OF_KEY_RIGHT:
-		thrustForce->add(0.5 * ofVec3f(1, 0, 0));
+		thrustForce->add(0.2 * ofVec3f(1, 0, 0));
 		rocketExhaust.start();
 		if (!movementSound.isPlaying()) {
 			movementSound.play();
 		}
 		break;
 	case OF_KEY_UP:
-		thrustForce->add(0.5 * ofVec3f(0, 1, 0));
+		thrustForce->add(0.2 * headingVector);
 		rocketExhaust.start();
 		if (!movementSound.isPlaying()) {
 			movementSound.play();
 		}
 		break;
 	case OF_KEY_DOWN:
-		thrustForce->add(0.5 * ofVec3f(0, -1, 0));
+		thrustForce->add(0.2 * -headingVector);
 		rocketExhaust.start();
 		if (!movementSound.isPlaying()) {
 			movementSound.play();
@@ -537,8 +576,20 @@ void ofApp::keyReleased(int key) {
 
 	switch (key) {
 	case 'w':
+		thrustForce->set(ofVec3f(0, 0, 0));
 		rocketExhaust.stop();
 		movementSound.stop();
+		break;
+	case 's':
+		thrustForce->set(ofVec3f(0, 0, 0));
+		rocketExhaust.stop();
+		movementSound.stop();
+		break;
+	case 'q':
+		landerSys->particles[0].rForce = 0;
+		break;
+	case 'e':
+		landerSys->particles[0].rForce = 0;
 		break;
 	case OF_KEY_LEFT:
 		thrustForce->set(ofVec3f(0, 0, 0));

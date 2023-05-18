@@ -9,7 +9,7 @@ ParticleEmitter::ParticleEmitter() {
 	init();
 }
 
-ParticleEmitter::ParticleEmitter(ParticleSystem *s) {
+ParticleEmitter::ParticleEmitter(ParticleSystem* s) {
 	if (s == NULL)
 	{
 		cout << "fatal error: null particle system passed to ParticleEmitter()" << endl;
@@ -54,17 +54,17 @@ void ParticleEmitter::draw() {
 	if (visible) {
 		switch (type) {
 		case DirectionalEmitter:
-			ofDrawSphere(position, radius/10);  // just draw a small sphere for point emitters 
+			ofDrawSphere(position, radius / 10);  // just draw a small sphere for point emitters 
 			break;
 		case SphereEmitter:
 		case RadialEmitter:
-			ofDrawSphere(position, radius/10);  // just draw a small sphere as a placeholder
+			ofDrawSphere(position, radius / 10);  // just draw a small sphere as a placeholder
 			break;
 		default:
 			break;
 		}
 	}
-	sys->draw();  
+	sys->draw();
 }
 void ParticleEmitter::start() {
 	if (started) return;
@@ -99,9 +99,9 @@ void ParticleEmitter::update() {
 
 		// spawn a new particle(s)
 		//
-		for (int i= 0; i < groupSize; i++)
+		for (int i = 0; i < groupSize; i++)
 			spawn(time);
-	
+
 		lastSpawned = time;
 	}
 
@@ -119,12 +119,12 @@ void ParticleEmitter::spawn(float time) {
 	//
 	switch (type) {
 	case RadialEmitter:
-	  {
+	{
 		ofVec3f dir = ofVec3f(ofRandom(-1, 1), ofRandom(-1, 1), ofRandom(-1, 1));
 		float speed = velocity.length();
 		particle.velocity = dir.getNormalized() * speed;
 		particle.position.set(position);
-	  }
+	}
 	break;
 	case SphereEmitter:
 		break;
