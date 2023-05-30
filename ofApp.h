@@ -29,6 +29,7 @@ public:
 	void dragEvent(ofDragInfo dragInfo);
 	void gotMessage(ofMessage msg);
 	void loadVbo();
+	void loadExplosionVbo();
 	void drawAxis(ofVec3f);
 	void initLightingAndMaterials();
 	void savePicture();
@@ -88,11 +89,15 @@ public:
 	bool bFuel = true;
 	bool bLanded = false;
 	bool landedInBox = false;
+	bool landedOutsideBox = false;
+	bool softLanding = false;
 	bool roughLanding = false;
+	bool thrusterOn = false;
 	float altitude;
 	float finalScore;
 	float angle;
-	float fuel = 120000;
+	float fuel = 10;
+
 
 	glm::vec3 headingVector;
 
@@ -101,11 +106,12 @@ public:
 	GravityForce* gravityForce;
 	ThrustForce* thrustForce;
 	ImpulseForce* impulseForce;
+	ImpulseRadialForce* impulseRadialForce;
 	ParticleEmitter explosion, rocketExhaust;
 	ofLight keyLight, fillLight, rimLight;
 	ofSoundPlayer movementSound, explosionSound;
 	ofImage background;
 	ofTexture particleTex;
-	ofVbo vbo;
+	ofVbo vbo, explodeVbo;
 	ofShader shader;
 };

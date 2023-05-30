@@ -3,11 +3,11 @@
 //
 //  Kevin M. Smith
 //
-//  Octree Test - startup scene
+//  Final Project - Moon Lander Game
 // 
 //
 //  Student Name:   < Eric Pham >
-//  Date: <4/30/2023>
+//  Date: <5/18/2023>
 
 
 #include "ofApp.h"
@@ -25,21 +25,25 @@ void ofApp::setup() {
 	bLanderLoaded = false;
 	bTerrainSelected = true;
 
+	// load background and sound
 	background.load("images/starfield.jpg");
-	movementSound.load("sounds/rocket-thrust.wav");
-	movementSound.setVolume(0.1);
+	movementSound.load("sounds/rocket-thrust.wav");	
+	movementSound.setVolume(0.3 );
 	movementSound.setLoop(true);
-	//	ofSetWindowShape(1024, 768);
-	cam.setDistance(40);
+	explosionSound.load("sounds/explosion.wav");
+	explosionSound.setVolume(0.2);
+
+	// free cam
+	cam.setDistance(80);
 	cam.setNearClip(.1);
 	cam.setFov(65.5);   // approx equivalent to 28mm in 35mm format
 	ofSetVerticalSync(true);
 	cam.disableMouseInput();
 
-	//cam tracking spaceship
+	//cam tracking lander
 	cam1.setNearClip(.1);
 	cam1.setFov(65.5);
-	cam1.setPosition(3, 5, 3);
+	cam1.setPosition(glm::vec3(lander.getPosition().x, lander.getPosition().y + 20, lander.getPosition().z));
 	cam1.lookAt(lander.getPosition());
 
 	//onboard camera
@@ -137,7 +141,7 @@ void ofApp::setup() {
 	//
 	lander.loadModel("geo/lander.obj");
 	lander.setScaleNormalization(false);
-	lander.setPosition(0, 40, 0);
+	lander.setPosition(50, 200, 30);
 	bLanderLoaded = true;
 
 	landerSys = new ParticleSystem();
@@ -145,12 +149,12 @@ void ofApp::setup() {
 	playerLander->lifespan = -1;
 	landerSys->add(*playerLander);
 
-	gravityForce = new GravityForce(0.5 * ofVec3f(0, -1, 0));
+	gravityForce = new GravityForce(ofVec3f(0, -2, 0));
 	thrustForce = new ThrustForce(ofVec3f(0, 0, 0));
 	landerSys->addForce(gravityForce);
 	landerSys->addForce(thrustForce);
 
-	landingBox = Box(Vector3(-4, 0, -4), Vector3(4, 0.5, 4));
+	landingBox = Box(Vector3(-6, 0, -6), Vector3(6, 0.5, 6));
 
 	// particle emitter for rocket exhaust
 	rocketExhaust.setEmitterType(DiscEmitter);
@@ -162,11 +166,14 @@ void ofApp::setup() {
 
 	// particle emitter for explosion
 	explosion.setEmitterType(RadialEmitter);
+	impulseRadialForce = new ImpulseRadialForce(2000);
+	explosion.sys->addForce(impulseRadialForce);
 	explosion.setPosition(landerSys->particles[0].position);
 	explosion.setOneShot(true);
 	explosion.setGroupSize(100);
 	explosion.setVelocity(ofVec3f(0, 0, 0));
 	explosion.setLifespan(1);
+	explosion.setParticleRadius(0.2);
 }
 
 // load vertex buffer in preparation for rendering
@@ -188,6 +195,25 @@ void ofApp::loadVbo() {
 	vbo.setNormalData(&sizes[0], total, GL_STATIC_DRAW);
 }
 
+// shader for explosion using same concept as loadVbo()
+//
+void ofApp::loadExplosionVbo() {
+	if (explosion.sys->particles.size() < 1) return;
+
+	vector<ofVec3f> sizes;
+	vector<ofVec3f> points;
+	for (int i = 0; i < explosion.sys->particles.size(); i++) {
+		points.push_back(explosion.sys->particles[i].position);
+		sizes.push_back(ofVec3f(25));
+	}
+	// upload the data to the vbo
+	//
+	int total = (int)points.size();
+	explodeVbo.clear();
+	explodeVbo.setVertexData(&points[0], total, GL_STATIC_DRAW);
+	explodeVbo.setNormalData(&sizes[0], total, GL_STATIC_DRAW);
+}
+
 //--------------------------------------------------------------
 // incrementally update scene (animation)
 //
@@ -195,10 +221,11 @@ void ofApp::update() {
 	ofSeedRandom();
 
 	// update camera 
+	cam1.setPosition(lander.getPosition().x, lander.getPosition().y + 25, lander.getPosition().z + 25);
 	cam1.lookAt(lander.getPosition());
 	cam2.setPosition(glm::vec3(lander.getPosition().x, lander.getPosition().y, lander.getPosition().z));
 	cam2.lookAt(lander.getPosition());
-	top.setPosition(lander.getPosition().x, lander.getPosition().y + 25, lander.getPosition().z - 25);
+	top.setPosition(lander.getPosition().x, lander.getPosition().y + 25, lander.getPosition().z);
 	top.lookAt(lander.getPosition());
 
 	// update lander
@@ -210,37 +237,46 @@ void ofApp::update() {
 		landerSys->particles[0].position = lander.getPosition();
 		if (checkCollisions()) {
 			bLanded = true;
-			// landed correctly in the area
+			float restitution = 0.6;
+			landerSys->particles[0].velocity.y *= -restitution;
+			// lander has landed
 			if (bLanded) {
 				ofVec3f min = lander.getSceneMin() + lander.getPosition();
 				ofVec3f max = lander.getSceneMax() + lander.getPosition();
 
 				Box bounds = Box(Vector3(min.x, min.y, min.z), Vector3(max.x, max.y, max.z));
+				// landed in landing area
 				if (bounds.overlap(landingBox)) {
-					landedInBox = true; 
-					finalScore = (fuel / 100) + 100;
+					landedInBox = true;
+					if (landerSys->particles[0].velocity.y < 3 && landerSys->particles[0].velocity.y > 0) {
+						softLanding = true;
+						finalScore = fuel + 100;
+						// debug statement cout << "it works" << endl;
+					}
 				}
-				impulseForce = new ImpulseForce(ofVec3f(0, 10, 0));
-				impulseForce->applyOnce = true;
-				landerSys->addForce(impulseForce);
+				else {
+					landedOutsideBox = true;
+				}
 			}
 
-			// if landing was too hard
-			if (landerSys->particles[0].velocity.y < -5 || !landedInBox) {
+			// lander going too fast
+			if (landerSys->particles[0].velocity.y > 5) {
 				// lander explodes
 				impulseForce = new ImpulseForce(ofVec3f(0, 3000, 0));
 				impulseForce->applyOnce = true;
 				landerSys->addForce(impulseForce);
 				explosion.sys->reset();
 				explosion.start();
-				cout << "explosion" << endl;
+				explosionSound.play(); 
+				// debug statement cout << "explosion" << endl;
 				gameOver = true;
 			}
 
-			else if (landerSys->particles[0].velocity.y < -3 && landedInBox) {
+			// landing a little hard
+			else if (landerSys->particles[0].velocity.y > 3 && landedInBox) {
 				roughLanding = true;
-				cout << "hard landing" << endl;
-				finalScore = (fuel / 100) + 50;
+				// debug statement cout << "hard landing" << endl;
+				finalScore = (fuel / 100) + 75;
 			}
 
 		}
@@ -261,6 +297,7 @@ void ofApp::update() {
 //--------------------------------------------------------------
 void ofApp::draw() {
 	loadVbo();
+	loadExplosionVbo();
 	ofBackground(ofColor::black);
 
 	glDepthMask(false);
@@ -297,6 +334,7 @@ void ofApp::draw() {
 		if (bLanderLoaded) {
 			lander.drawFaces();
 			rocketExhaust.draw();
+			explosion.draw();
 			if (!bTerrainSelected) drawAxis(lander.getPosition());
 			if (bDisplayBBoxes) {
 				ofNoFill();
@@ -393,6 +431,7 @@ void ofApp::draw() {
 
 	particleTex.bind();
 	vbo.draw(GL_POINTS, 0, (int)rocketExhaust.sys->particles.size());
+	explodeVbo.draw(GL_POINTS, 0, (int)explosion.sys->particles.size());
 	particleTex.unbind();
 
 	//  end drawing in the camera
@@ -411,9 +450,44 @@ void ofApp::draw() {
 	// draw screen data
 	//
 	string altitudeText;
-	altitudeText += "Current Altitude: " + std::to_string(altitude);
+	altitudeText += "Current Altitude: " + to_string(altitude);
 	ofSetColor(ofColor::white);
-	ofDrawBitmapString(altitudeText, ofGetWindowWidth() / 2, 40);
+	ofDrawBitmapString(altitudeText, ofGetWindowWidth() / 2 + 300, 40);
+
+	string currentFuel;
+	currentFuel += "Current Fuel: " + to_string(fuel) + " / 120 seconds";
+	ofSetColor(ofColor::white);
+	ofDrawBitmapString(currentFuel, ofGetWindowWidth() / 2 + 300, 60); 
+	
+	string camControl;
+	camControl += "Press 1 for easyCam, 2 for tracking cam, 3 for onboard cam, 4 for top view cam\nPress 'c' to enable mouse input";
+	ofSetColor(ofColor::white);
+	ofDrawBitmapString(camControl, ofGetWindowWidth() / 2 - 400, 40);
+
+	string movementControls;
+	movementControls += "W/S to thrust up/down. Arrow keys to go forward, backward, left, right.\nQ/E to rotate left/right";
+	ofSetColor(ofColor::white);
+	ofDrawBitmapString(movementControls, ofGetWindowWidth() / 2 - 400, 80);
+
+	ofDrawBitmapString("Press 'space' to start/restart game.", ofGetWindowWidth() / 2 -  400, 120);
+
+
+	// draw to let player know game is over
+	if (gameOver) {
+		ofSetColor(ofColor::red);
+		ofDrawBitmapString("Game Over! You were going too fast.\nScore: 0", ofGetWindowWidth() / 2 + 200, ofGetWindowHeight() / 2 - 100);
+	}
+
+	if (roughLanding && !gameOver) {
+		ofSetColor(ofColor::red);
+		ofDrawBitmapString("Congratulations! You had a hard landing.\nScore: " + to_string(finalScore), ofGetWindowWidth() / 2 + 200, ofGetWindowHeight() / 2 - 100);
+	}
+
+	if (softLanding && !gameOver) {
+		ofSetColor(ofColor::red);
+		ofDrawBitmapString("Congratulations! You had a good landing.\nScore: " + to_string(finalScore), ofGetWindowWidth() / 2 + 200, ofGetWindowHeight() / 2 - 100);
+	}
+
 }
 
 
@@ -447,10 +521,6 @@ void ofApp::drawAxis(ofVec3f location) {
 void ofApp::keyPressed(int key) {
 
 	switch (key) {
-	case 'B':
-	case 'b':
-		bDisplayBBoxes = !bDisplayBBoxes;
-		break;
 	case 'C':
 	case 'c':
 		if (cam.getMouseInputEnabled()) cam.disableMouseInput();
@@ -463,74 +533,104 @@ void ofApp::keyPressed(int key) {
 	case 'H':
 	case 'h':
 		break;
-	case 'L':
-	case 'l':
-		bDisplayLeafNodes = !bDisplayLeafNodes;
-		break;
-	case 'O':
-	case 'o':
-		bDisplayOctree = !bDisplayOctree;
-		break;
 	case 'r':
 		cam.reset();
+		cam.setPosition(ofVec3f(0, 0, 0));
+		cam.setDistance(80);
 		break;
 	case 't':
 		setCameraTarget();
 		break;
 	case 'u':
 		break;
-	case 'v':
-		togglePointsDisplay();
-		break;
-	case 'V':
+	case ' ':
+		gameOver = false;
+		landedInBox = false;
+		roughLanding = false;
+		softLanding = false;
+		bFuel = true;
+		lander.setPosition(50, 200, 30);
+		fuel = 120;
 		break;
 	case 'w':
-		thrustForce->add(0.2 * ofVec3f(0, 1, 0));
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		if (bFuel && !gameOver) {
+			thrusterOn = true;
+			fuel -= ofGetLastFrameTime();
+			thrustForce->add(0.5 * ofVec3f(0, 1, 0));
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play();
+			}
 		}
 		break;
 	case 's':
-		thrustForce->add(0.2 * ofVec3f(0, -1, 0));
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		if (bFuel && !gameOver) {
+			thrusterOn = true;
+			fuel -= ofGetLastFrameTime();
+			thrustForce->add(0.5 * ofVec3f(0, -1, 0));
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play();
+			}
 		}
 		break;
 	case 'q':
-		landerSys->particles[0].rForce = 10;
+		if (bFuel && !gameOver) {
+			landerSys->particles[0].rForce = 10;
+		}
 		break;
 	case 'e':
-		landerSys->particles[0].rForce = -10;
-		break;
-	case OF_KEY_LEFT: 
-		thrustForce->add(0.2 * ofVec3f(-1, 0, 0));
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		if (bFuel && !gameOver) {
+			landerSys->particles[0].rForce = -10;
 		}
+		break;
+	case OF_KEY_LEFT:
+		if (bFuel && !gameOver) {
+			thrusterOn = true;
+			fuel -= ofGetLastFrameTime();
+			thrustForce->add(0.5 * ofVec3f(-1, 0, 0));
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play(); 
+			}
+		}
+		break;
 		break;
 	case OF_KEY_RIGHT:
-		thrustForce->add(0.2 * ofVec3f(1, 0, 0));
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		if (bFuel && !gameOver) {
+			thrusterOn = true;
+			fuel -= ofGetLastFrameTime();
+			thrustForce->add(0.5 * ofVec3f(1, 0, 0));
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play();
+			}
 		}
+		break;
 		break;
 	case OF_KEY_UP:
-		thrustForce->add(0.2 * headingVector);
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		thrusterOn = true;
+		fuel -= ofGetLastFrameTime();
+		if (bFuel && !gameOver) {
+			thrustForce->add(0.5 * headingVector);
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play();
+			}
 		}
 		break;
+		break;
 	case OF_KEY_DOWN:
-		thrustForce->add(0.2 * -headingVector);
-		rocketExhaust.start();
-		if (!movementSound.isPlaying()) {
-			movementSound.play();
+		thrusterOn = true;
+		fuel -= ofGetLastFrameTime();
+		if (bFuel && !gameOver) {
+			thrustForce->add(0.5 * -headingVector);
+			rocketExhaust.start();
+			if (!movementSound.isPlaying()) {
+				movementSound.play();
+			}
 		}
+		break;
 		break;
 	case '1':
 		theCam = &cam;
@@ -573,43 +673,48 @@ void ofApp::togglePointsDisplay() {
 }
 
 void ofApp::keyReleased(int key) {
-
+	rocketExhaust.stop();
+	movementSound.stop();
 	switch (key) {
 	case 'w':
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case 's':
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case 'q':
-		landerSys->particles[0].rForce = 0;
+		if (bFuel && !gameOver) {
+			landerSys->particles[0].rForce = 0;
+		}
 		break;
 	case 'e':
-		landerSys->particles[0].rForce = 0;
+		if (bFuel && !gameOver) {
+			landerSys->particles[0].rForce = 0;
+		}
 		break;
 	case OF_KEY_LEFT:
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case OF_KEY_RIGHT:
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case OF_KEY_UP:
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case OF_KEY_DOWN:
-		thrustForce->set(ofVec3f(0, 0, 0));
-		rocketExhaust.stop();
-		movementSound.stop();
+		if (bFuel && !gameOver) {
+			thrustForce->set(ofVec3f(0, 0, 0));
+		}
 		break;
 	case OF_KEY_ALT:
 		cam.disableMouseInput();
@@ -944,22 +1049,26 @@ float ofApp::getAltitude() {
 	return glm::length(p - lander.getPosition());
 }
 
-//collision detectiom
 bool ofApp::checkCollisions() {
 	ofVec3f min = lander.getSceneMin() + lander.getPosition();
 	ofVec3f max = lander.getSceneMax() + lander.getPosition();
 
 	Box bounds = Box(Vector3(min.x, min.y, min.z), Vector3(max.x, max.y, max.z));
-
 	colBoxList.clear();
-
 	octree.intersect(bounds, octree.root, colBoxList);
 
+	// collision detection with terrain and lander
 	for (int i = 0; i < colBoxList.size(); i++) {
 		if (bounds.overlap(colBoxList[i])) {
-			ofVec3f temps = ofVec3f(colBoxList[i].parameters[0].x(), colBoxList[i].parameters[1].y(), colBoxList[i].parameters[0].z());
-			float temp = landerSys->particles[0].position.y - temps.y;
-			landerSys->particles[0].position.y = landerSys->particles[0].position.y - (temp - 0.03);
+			//take top of terrain
+			ofVec3f topOfTerrain = ofVec3f(colBoxList[i].parameters[0].x(), colBoxList[i].parameters[1].y(), colBoxList[i].parameters[0].z());
+			//take bottom of lander
+			ofVec3f bottomOfLander = ofVec3f(landerSys->particles[0].position.x, landerSys->particles[0].position.y, landerSys->particles[0].position.z);
+			// calculate collision and also adjust so lander does not go through terrain
+			float collision = bottomOfLander.y - topOfTerrain.y;
+			landerSys->particles[0].position.y -= collision - 0.03;
+
+			// debug satatement cout << landerSys->particles[0].velocity.y << endl;
 			return true;
 		}
 	}

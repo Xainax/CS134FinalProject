@@ -12,9 +12,9 @@ public:
 	ofVec3f velocity;
 	ofVec3f acceleration;
 	ofVec3f forces;
-	float   rForce;
-	float	rVelocity;
-	float	rAcceleration;
+	float   rForce = 0;
+	float	rVelocity = 0;
+	float	rAcceleration = 0;
 	float   rotation;
 	float	damping;
 	float   mass;
